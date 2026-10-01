@@ -1,106 +1,155 @@
-# Scheme File Uploader
+---
+title: Scheme File Uploader
+description: Local .NET 8 and Azurite walking skeleton for the HVE workshop
+---
 
-Lab repository for a half-day Hyper Velocity Engineering (HVE) workshop.
+## Workshop context
 
-The tool does not exist yet. That is the point. Participants build it during the
-workshop, starting from a requirement and an empty solution rather than from an
-existing codebase.
-
-What gets built is a small .NET console tool that uploads a file to Azure Blob
-Storage. It runs entirely against the [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
-local emulator, so no Azure subscription, no credentials, and no network egress
-are required.
-
-> [!NOTE]
-> Everything here is fictional. The "Northwind Rail Pension Scheme" does not
-> exist, the sample data is synthetic, and no personal data of any kind is
-> present in this repository.
-
-## Why this repository exists
+This repository supports a half-day Hyper Velocity Engineering (HVE) workshop.
+The walking skeleton is a .NET 8 command-line tool that uploads one local file
+to Azure Blob Storage through the local Azurite emulator.
 
 The workshop covers an AI-assisted delivery lifecycle: intake, refinement,
-research, planning, implementation, review, and release. Teaching that needs a
-real piece of work, not a finished sample to read.
+research, planning, implementation, review, and release. The upload is small on
+purpose. It leaves enough room to examine collision policy, configuration,
+security boundaries, test design, and evidence.
 
-So the repository ships deliberately incomplete. There is a requirement, a
-backlog, and a skeleton. There is no implementation. Participants take the story
-through refinement, discover what it does not yet say, and build the first slice.
+> [!NOTE]
+> Everything here is fictional. The Northwind Rail Pension Scheme does not
+> exist, the sample data is synthetic, and no personal data is present in this
+> repository.
 
-The interesting part is not the upload. It is that the story cannot be
-implemented as written until the team decides what should happen when a file of
-that name is already there. Refuse, replace, or version. Each answer produces a
-different command, a different runbook, and a different definition of success.
-Nobody has decided, and the code cannot avoid the question.
+## Backlog
 
-## The backlog
+* [#1](../../issues/1), Feature: parent single-file upload requirement and future roadmap
+* [#2](../../issues/2), Task: local single-file and Azurite walking skeleton
 
-| Issue | Type | Role in the day |
-|-------|------|-----------------|
-| [#1](../../issues/1) | Feature | The parent story. Deliberately **not** Ready: three design decisions are left open so refinement has real work to do. |
-| [#2](../../issues/2) | Task | The walking skeleton, sized to fit the implementation window. |
+Issue #1 carries the broader context, acceptance criteria, and security lenses.
+The current implementation is the bounded local slice from issue #2.
 
-Issue #1 carries the context, acceptance criteria, security lenses, and the
-target implementation shape. Read it first.
+## Prerequisites
 
-## Getting started
+* .NET SDK 8.0.406, selected by `global.json`
+* Docker capable of running Linux containers
 
-Prerequisites: the .NET 8 SDK, and either Node.js or Docker for the emulator.
+No Azure subscription or cloud credentials are required. The application uses
+only local Azurite and does not connect to an Azure account.
 
-Start the emulator:
+## Start Azurite
+
+Start the pinned Azurite 3.36.0 container in a separate terminal:
 
 ```bash
-npx azurite --silent --location .azurite
+docker run --rm --name scheme-file-uploader-azurite -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:3.36.0
 ```
 
-Or with Docker:
+Stop the emulator with `Control+C` in that terminal. The container is removed
+when it stops.
+
+## Build and run
+
+Restore and build from the repository root:
 
 ```bash
-docker run -p 10000:10000 mcr.microsoft.com/azure-storage/azurite
+dotnet restore
+dotnet build --configuration Release --no-restore
 ```
 
-There is nothing to run yet. Building the thing that runs is the exercise.
-
-## Target shape
-
-Once the first slice lands:
+Upload the synthetic workshop file to the default `contributions` container:
 
 ```bash
-dotnet build
-dotnet test --filter "Category!=Integration"
 dotnet run --project src/SchemeFileUploader.Cli -- data/contributions-2026-07.csv
 ```
 
-```text
-Uploaded contributions-2026-07.csv (2,048 bytes)
+Override the destination container for one invocation:
+
+```bash
+dotnet run --project src/SchemeFileUploader.Cli -- data/contributions-2026-07.csv --container workshop-contributions
 ```
 
-## Planned repository layout
+The CLI reads defaults from `src/SchemeFileUploader.Cli/appsettings.json`, then
+applies `Uploader__*` environment variables. The `--container` argument has the
+highest precedence for the container name.
 
-```text
-src/SchemeFileUploader/          library: upload policy, storage seam, result model
-src/SchemeFileUploader.Cli/      console entry point and argument parsing
-tests/SchemeFileUploader.Tests/  policy tests plus one opt-in emulator test
-data/                            synthetic sample input
-docs/requirements/               the product requirements the backlog came from
-docs/lab-brief.md                participant handout
+```bash
+Uploader__ContainerName=environment-contributions \
+  dotnet run --project src/SchemeFileUploader.Cli -- data/contributions-2026-07.csv
 ```
 
-Tests are split deliberately. Policy behaviour is verified through an in-memory
-fake behind the `IBlobUploader` seam and runs in CI with no emulator. A single
-integration test exercises the real SDK against Azurite and is excluded from the
-default test run by the `Integration` trait.
+The command accepts exactly one local file. It rejects directories, symbolic
+links, missing files, and files larger than the configured limit. The interim
+default limit is 100 MiB.
 
-## A note on the connection string
+## Outcomes and create-only behavior
 
-The tool is configured with `UseDevelopmentStorage=true`, the published Azurite
-development shorthand. It is not a secret and it authenticates against nothing
-real. No part of this repository connects to an Azure account.
+Uploads use an atomic create-only condition. A blob that already has the same
+name is never overwritten. Rename the local file or remove the existing test
+blob before retrying.
+
+* Exit code `0`: the blob was created and the reported byte count is the source file length
+* Exit code `1`: the upload was refused because a blob with the same name already exists
+* Exit code `2`: usage, configuration, source-file, emulator, or expected storage failure
+
+Expected output is sanitized. It does not include connection strings, account
+keys, SAS queries, absolute source paths, or stack traces.
+
+## Tests
+
+The default suite uses an in-memory `IBlobUploader` fake. It must pass without
+Azurite and excludes integration tests explicitly:
+
+```bash
+dotnet test --configuration Release --filter "Category!=Integration"
+```
+
+With Azurite 3.36.0 running on port 10000, run the opt-in real-SDK tests:
+
+```bash
+dotnet test --configuration Release --filter "Category=Integration"
+```
+
+The integration category creates unique test-owned containers, verifies exact
+uploaded bytes and metadata, proves repeated-name refusal, races concurrent
+same-name creates, and deletes only its own containers.
+
+## Synthetic workshop data
+
+`data/contributions-2026-07.csv` is a synthetic, PII-free acceptance fixture.
+It exists only to exercise the local upload path and must not be replaced with
+customer, employee, pension-scheme, or other personal data.
+
+## Scope and security boundary
+
+Azurite validates the local Blob SDK path and create-only behavior. It does not
+validate Azure identity or hosted security controls.
+
+The following capabilities are follow-on work and are not implemented or proven
+by this walking skeleton:
+
+* Microsoft Entra authentication and managed identities
+* Azure RBAC and production authorization boundaries
+* SAS issuance, expiry, revocation, and user delegation
+* Browser-based folder selection, recursive folder upload, and CORS
+* Quarantine, promotion, retention, and lifecycle workflows
+* Malware scanning, Microsoft Defender for Storage, and scan-result handling
+* Hosted networking, quotas, monitoring, incident response, and other security controls
+
+Passing the Azurite tests is local integration evidence. It is not evidence that
+the application is ready to receive arbitrary or untrusted files in Azure.
+
+## Repository layout
+
+```text
+src/SchemeFileUploader/          upload policy, storage boundary, and Blob SDK adapter
+src/SchemeFileUploader.Cli/      arguments, configuration, output, and exit codes
+tests/SchemeFileUploader.Tests/  fake-backed tests and opt-in Azurite tests
+data/                            synthetic workshop input
+```
 
 ## Contributing
 
-This is workshop material rather than a maintained product. The gaps in the
-backlog are intentional and should not be closed on `main` outside a workshop
-run.
+This repository is workshop material rather than a maintained product. Keep
+changes aligned with the active workshop branch and its accepted scope.
 
 ## Trademarks
 
