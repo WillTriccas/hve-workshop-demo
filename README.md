@@ -2,9 +2,9 @@
 
 Lab repository for a half-day Hyper Velocity Engineering (HVE) workshop.
 
-The tool does not exist yet. That is the point. Participants build it during the
-workshop, starting from a requirement and an empty solution rather than from an
-existing codebase.
+The repository includes the first walking slice of the tool. Participants use
+that working slice to practice evolving a requirement and an existing codebase
+during the workshop.
 
 What gets built is a small .NET console tool that uploads a file to Azure Blob
 Storage. It runs entirely against the [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
@@ -22,15 +22,19 @@ The workshop covers an AI-assisted delivery lifecycle: intake, refinement,
 research, planning, implementation, review, and release. Teaching that needs a
 real piece of work, not a finished sample to read.
 
-So the repository ships deliberately incomplete. There is a requirement, a
-backlog, and a skeleton. There is no implementation. Participants take the story
-through refinement, discover what it does not yet say, and build the first slice.
+So the repository remains deliberately incomplete. There is a requirement, a
+backlog, and an implemented walking skeleton. Participants take later stories
+through refinement, discover what they do not yet say, and evolve the first
+slice.
 
 The interesting part is not the upload. It is that the story cannot be
 implemented as written until the team decides what should happen when a file of
 that name is already there. Refuse, replace, or version. Each answer produces a
 different command, a different runbook, and a different definition of success.
-Nobody has decided, and the code cannot avoid the question.
+Nobody has decided, and the code cannot avoid the question. The team must also
+decide whether the first consumer is an interactive person or an unattended
+scheduler, and who owns destination configuration after the local Azurite
+slice. Those decisions remain intentionally open for refinement.
 
 ## The backlog
 
@@ -46,49 +50,54 @@ target implementation shape. Read it first.
 
 Prerequisites: the .NET 8 SDK, and either Node.js or Docker for the emulator.
 
+Build the solution and run the default tests without Azurite:
+
+```bash
+dotnet build
+dotnet test --filter "Category!=Integration"
+```
+
 Start the emulator:
 
 ```bash
-npx azurite --silent --location .azurite
+npx azurite@3.36.0 --silent --location .azurite
 ```
 
 Or with Docker:
 
 ```bash
-docker run -p 10000:10000 mcr.microsoft.com/azure-storage/azurite
+docker run -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:3.36.0
 ```
 
-There is nothing to run yet. Building the thing that runs is the exercise.
-
-## Target shape
-
-Once the first slice lands:
+With Azurite running, run the opt-in integration tests:
 
 ```bash
-dotnet build
-dotnet test --filter "Category!=Integration"
+dotnet test --filter "Category=Integration"
+```
+
+Upload the synthetic acceptance fixture:
+
+```bash
 dotnet run --project src/SchemeFileUploader.Cli -- data/contributions-2026-07.csv
 ```
 
 ```text
-Uploaded contributions-2026-07.csv (2,048 bytes)
+Uploaded contributions-2026-07.csv to contributions (165 bytes)
 ```
 
-## Planned repository layout
+## Repository layout
 
 ```text
 src/SchemeFileUploader/          library: upload policy, storage seam, result model
 src/SchemeFileUploader.Cli/      console entry point and argument parsing
-tests/SchemeFileUploader.Tests/  policy tests plus one opt-in emulator test
+tests/SchemeFileUploader.Tests/  policy tests plus opt-in emulator tests
 data/                            synthetic sample input
-docs/requirements/               the product requirements the backlog came from
-docs/lab-brief.md                participant handout
 ```
 
 Tests are split deliberately. Policy behaviour is verified through an in-memory
-fake behind the `IBlobUploader` seam and runs in CI with no emulator. A single
-integration test exercises the real SDK against Azurite and is excluded from the
-default test run by the `Integration` trait.
+fake behind the `IBlobUploader` seam and runs in CI with no emulator. Integration
+tests exercise the real SDK against Azurite and are excluded from the default
+test run by the `Integration` trait.
 
 ## A note on the connection string
 
